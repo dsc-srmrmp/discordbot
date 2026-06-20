@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { PermissionsBitField } = require("discord.js");
 const { normalizePermissions } = require("../utils/permissions");
 const { isBotOwner } = require("../utils/owners");
 
@@ -8,7 +9,6 @@ module.exports = (client) => {
   const data = [];
   let totalCommands = 0;
 
-  // 1. Load manual slash commands first
   fs.readdirSync(slashCommandsPath).forEach((dir) => {
     const slashCommandFiles = fs
       .readdirSync(path.join(slashCommandsPath, dir))
@@ -55,11 +55,9 @@ module.exports = (client) => {
 
   client.logger.log(`Slash Commands Loaded: ${totalCommands}`, "cmd");
 
-  // 2. Scan all prefix commands and build category slash commands
   const categoriesMap = new Map();
 
   client.commands.forEach((command) => {
-    // Skip if there's already a manual slash command with this exact name
     if (client.slashCommands.has(command.name)) return;
 
     const categoryName = String(command.category || "other").toLowerCase().replace(/[^a-z0-9_-]/g, "");
@@ -78,7 +76,7 @@ module.exports = (client) => {
         subOptions.push({
           name: "query",
           description: cmd.usage ? `Args: ${cmd.usage}` : "Arguments for the command",
-          type: 3, // String
+          type: 3, 
           required: cmd.args || false,
         });
       }
@@ -86,12 +84,11 @@ module.exports = (client) => {
       return {
         name: subName,
         description: (cmd.description || `Execute prefix command: ${cmd.name}`).slice(0, 100),
-        type: 1, // Subcommand
+        type: 1, 
         options: subOptions,
       };
     });
 
-    // Subcommands limit is 25 per Discord specs
     const chunkedSubcommands = subcommands.slice(0, 25);
 
     const categorySlashCommand = {
@@ -114,8 +111,6 @@ module.exports = (client) => {
           });
         }
 
-        // Check user & bot permissions
-        const { PermissionsBitField } = require("discord.js");
         if (prefixCommand.botPerms && prefixCommand.botPerms.length > 0) {
           if (!interaction.guild.members.me.permissions.has(PermissionsBitField.resolve(prefixCommand.botPerms))) {
             return interaction.reply({
@@ -133,7 +128,6 @@ module.exports = (client) => {
           }
         }
 
-        // Check Antinuke/Automod security restrictions
         const isSecurityCommand = prefixCommand.category === "Antinuke" || prefixCommand.category === "Automod";
         if (isSecurityCommand) {
           const AntiNuke = require("../schema/antinuke");
@@ -156,7 +150,7 @@ module.exports = (client) => {
           }
         }
 
-        const player = client.manager.players.get(interaction.guildId);
+        const player = client.manager?.players?.get(interaction.guildId);
         if (prefixCommand.player && !player) {
           return interaction.reply({ content: `I'm not in any voice channel!`, ephemeral: true });
         }
@@ -167,33 +161,71 @@ module.exports = (client) => {
           return interaction.reply({ content: `You must be in the same voice channel as the bot!`, ephemeral: true });
         }
 
+        await interaction.deferReply().catch(() => {});
+        
+        let hasBridgedReply = false; 
+
         const queryOption = interaction.options.getString("query") || "";
         const args = queryOption.trim().split(/ +/).filter(Boolean);
+
+        let mentionedMember = null;
+        let mentionedUser = null;
+
+        if (queryOption) {
+          const mentionMatch = queryOption.match(/\d{17,20}/);
+          if (mentionMatch) {
+            const targetId = mentionMatch[0];
+            mentionedMember = interaction.guild.members.cache.get(targetId);
+            
+            if (!mentionedMember) {
+              try {
+                mentionedMember = await interaction.guild.members.fetch({ user: targetId, force: false });
+              } catch (e) {
+              }
+            }
+            
+            mentionedUser = mentionedMember?.user || client.users.cache.get(targetId) || null;
+          }
+        }
+
+        const shimChannel = Object.create(interaction.channel);
+        shimChannel.send = async (options) => {
+          if (typeof options === "string") options = { content: options };
+          options.fetchReply = true;
+          
+          if (!hasBridgedReply) {
+            hasBridgedReply = true;
+            return interaction.editReply(options);
+          }
+          return interaction.followUp(options);
+        };
 
         const shimMessage = {
           author: interaction.user,
           member: interaction.member,
           guild: interaction.guild,
+          mentions: {
+            users: {
+              first: () => mentionedUser
+            },
+            members: {
+              first: () => mentionedMember
+            }
+          },
           guildId: interaction.guildId,
-          channel: interaction.channel,
+          channel: shimChannel,
           channelId: interaction.channelId,
           content: `>${prefixCommand.name} ${queryOption}`,
           reply: async (options) => {
             if (typeof options === "string") options = { content: options };
-            if (interaction.replied || interaction.deferred) {
-              return interaction.followUp(options);
+            
+            options.fetchReply = true; 
+            
+            if (!hasBridgedReply) {
+              hasBridgedReply = true;
+              return interaction.editReply(options);
             }
-            return interaction.reply(options);
-          },
-          channel: {
-            ...interaction.channel,
-            send: async (options) => {
-              if (typeof options === "string") options = { content: options };
-              if (interaction.replied || interaction.deferred) {
-                return interaction.followUp(options);
-              }
-              return interaction.reply(options);
-            }
+            return interaction.followUp(options);
           }
         };
 
@@ -201,15 +233,17 @@ module.exports = (client) => {
           await prefixCommand.execute(shimMessage, args, client, prefix);
         } catch (error) {
           client.logger?.log(`[Slash Bridge] Command ${prefixCommand.name} failed: ${error.stack || error}`, "error");
-          if (!interaction.replied && !interaction.deferred) {
-            await interaction.reply({ content: "An error occurred while executing this command.", ephemeral: true }).catch(() => {});
+          
+          const errorPayload = { content: "An error occurred while executing this command." }; 
+          if (!hasBridgedReply) {
+            await interaction.editReply(errorPayload).catch(() => {});
           } else {
-            await interaction.followUp({ content: "An error occurred while executing this command.", ephemeral: true }).catch(() => {});
+            await interaction.followUp(errorPayload).catch(() => {});
           }
         }
-      }
-    };
-
+      } 
+    }; 
+    
     client.slashCommands.set(categoryName, categorySlashCommand);
     data.push({
       name: categorySlashCommand.name,
@@ -217,7 +251,7 @@ module.exports = (client) => {
       options: categorySlashCommand.options,
     });
     bridgedCount += chunkedSubcommands.length;
-  });
+  }); 
 
   client.logger.log(`Dynamic Slash Commands Loaded: ${bridgedCount} commands mapped to ${categoriesMap.size} category groups`, "cmd");
   client.slashCommandData = data;

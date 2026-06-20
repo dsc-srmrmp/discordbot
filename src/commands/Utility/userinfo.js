@@ -15,8 +15,8 @@ module.exports = {
   owner: false,
   execute: async (message, args, client, prefix) => {
     const bott = {
-      false: `${client.emoji.cross}`,
-      true: `${client.emoji.tick}`,
+      false: `${client.emoji?.cross || "❌"}`,
+      true: `${client.emoji?.tick || "✅"}`,
     };
 
     const flagg = {
@@ -43,14 +43,13 @@ module.exports = {
 
     const filter = { owner: message.guild.ownerId === mention1.id };
 
-    // Get user badges
-    const badges =
-      mention1.user.flags?.toArray().map((flag) => flagg[flag]) || [];
+    
+    const badges = mention1.user?.flags?.toArray().map((flag) => flagg[flag]) || [];
 
-    if (mention1.avatar && mention1.avatar.startsWith("a_"))
+    if (mention1.avatar && mention1.avatar.startsWith("a_")) {
       badges.push(flagg["PremiumEarlySupporter"]);
+    }
 
-    // Permissions Mapping
     const permissions = {
       Administrator: "Administrator",
       ManageGuild: "Manage Server",
@@ -70,11 +69,9 @@ module.exports = {
       ViewAuditLog: "View Audit Log",
     };
 
-    // Determine User Rank
     let acknowledgement = "Server Member";
     if (filter.owner) acknowledgement = "Server Owner";
-    else if (mention1.permissions.has("Administrator"))
-      acknowledgement = "Server Admin";
+    else if (mention1.permissions.has("Administrator")) acknowledgement = "Server Admin";
     else if (
       mention1.permissions.has([
         "ManageMessages",
@@ -85,106 +82,96 @@ module.exports = {
         "MoveMembers",
         "ViewAuditLog",
       ])
-    )
+    ) {
       acknowledgement = "Moderator";
+    }
 
-    // Get Role Information
     const nick = mention1.nickname || "None";
+    
+    
     const roless = mention1.roles.cache
       .filter((x) => x.id !== message.guildId && !x.managed)
       .sort((a, b) => b.position - a.position)
       .map((x) => x.toString());
 
-    // Get User Avatar
     const usericon = mention1.user.displayAvatarURL({ dynamic: true });
-
-    // Get Permissions
     const mentionPermissions = mention1.permissions.toArray();
     const finalPermissions = Object.keys(permissions).filter((perm) =>
-      mentionPermissions.includes(perm),
+      mentionPermissions.includes(perm)
     );
 
-    // Fetch user banner
-    let bannerUrl = null;
-    try {
-      const { data } = await axios.get(
-        `https://discord.com/api/users/${mention1.id}`,
-        {
-          headers: { Authorization: `Bot ${client.token}` },
-        },
-      );
-      if (data.banner) {
-        const ext = data.banner.startsWith("a_") ? ".gif" : ".png";
-        bannerUrl = `https://cdn.discordapp.com/banners/${mention1.id}/${data.banner}${ext}?size=4096`;
-      }
-    } catch (err) {
-      console.error("Failed to fetch user banner:", err);
-    }
-
-    // Create Embed
     const userlol = new client.embed()
       .setTitle(`${mention1.user.username}'s Information`)
       .addFields([
         {
-          name: `${client.emoji.info} About`,
-          value: `>>> **Default Name:** ${mention1.user.username}
-**Global Name:** [${mention1.user.displayName}](https://discord.com/users/${
-            mention1.id
-          })
-**Mention:** ${mention1}
-**ID:** \`${mention1.user.id}\`
-**Nickname:** ${nick}
-**Badges:** ${badges.length ? badges.join(" ") : "None"}
-**Created On:** <t:${Math.round(mention1.user.createdTimestamp / 1000)}:f>
-**Joined On:** <t:${Math.round(mention1.joinedTimestamp / 1000)}:f>
-**Activity:** ${
-            mention1.presence?.activities[0]
-              ? mention1.presence?.activities[0].name
-              : "No Current Activity."
-          }
-**Bot?:** ${bott[mention1.user.bot]}`,
+          name: `${client.emoji?.info || "ℹ️"} About`,
+          value: `>>> **Default Name:** ${mention1.user.username}\n**Global Name:** [${mention1.user.displayName}](https://discord.com/users/${mention1.id})\n**Mention:** ${mention1}\n**ID:** \`${mention1.user.id}\`\n**Nickname:** ${nick}\n**Badges:** ${badges.length ? badges.join(" ") : "None"}\n**Created On:** <t:${Math.round(mention1.user.createdTimestamp / 1000)}:f>\n**Joined On:** <t:${Math.round(mention1.joinedTimestamp / 1000)}:f>\n**Activity:** ${mention1.presence?.activities[0] ? mention1.presence?.activities[0].name : "No Current Activity."}\n**Bot?:** ${bott[mention1.user.bot]}`,
         },
         {
-          name: `${client.emoji.role} Role Info`,
-          value: `>>> **Highest Role:** ${
-            mention1.roles.highest.id === message.guild.id
-              ? "No Highest Role."
-              : mention1.roles.highest
-          }
-**Hoist Role:** ${mention1.roles.hoist || "No Hoist Role."}
-**Roles:** ${
-            mention1._roles.length > 0
-              ? `<@&${mention1._roles.join("> <@&")}>`
-              : "No Roles."
-          }
-**Color:** ${mention1.displayHexColor}`,
+          name: `${client.emoji?.role || "🏷️"} Role Info`,
+          value: `>>> **Highest Role:** ${mention1.roles.highest.id === message.guild.id ? "No Highest Role." : mention1.roles.highest}\n**Hoist Role:** ${mention1.roles.hoist || "No Hoist Role."}\n**Roles:** ${roless.length > 0 ? roless.join(" ") : "No Roles."}\n**Color:** ${mention1.displayHexColor}`,
         },
         {
-          name: `${client.emoji.profile} Key Permissions`,
-          value: `\`${finalPermissions.join(", ")}\``,
+          name: `${client.emoji?.profile || "🪪"} Key Permissions`,
+          value: `\`${finalPermissions.length ? finalPermissions.join(", ") : "None"}\``,
         },
       ]);
 
-    if (acknowledgement)
+    if (acknowledgement) {
       userlol.addFields([
         {
-          name: `${client.emoji.search} Acknowledgements`,
+          name: `${client.emoji?.search || "🔍"} Acknowledgements`,
           value: `\`${acknowledgement}\``,
         },
       ]);
+    }
 
     userlol.setThumbnail(usericon);
-    if (bannerUrl) userlol.setImage(bannerUrl);
+    userlol.setTimestamp();
 
     userlol.setFooter({
       text: `Requested By: ${message.author.tag}`,
       iconURL: message.author.displayAvatarURL({ dynamic: true }),
     });
 
-    userlol.setTimestamp();
+    try {
+     
+      const responseMessage = await message.reply(
+        v2({
+          embeds: [userlol],
+          allowedMentions: { repliedUser: true },
+        })
+      );
 
-    return message
-      .reply(v2({ embeds: [userlol], allowedMentions: { repliedUser: true } }))
-      .catch((err) => message.reply(v2("Error: " + err)));
+      
+      setTimeout(async () => {
+        try {
+          const { data } = await axios.get(
+            `https://discord.com/api/users/${mention1.id}`,
+            {
+              headers: { Authorization: `Bot ${client.token}` },
+              timeout: 2000
+            }
+          );
+          if (data.banner) {
+            const ext = data.banner.startsWith("a_") ? ".gif" : ".png";
+            const bannerUrl = `https://cdn.discordapp.com/banners/${mention1.id}/${data.banner}${ext}?size=4096`;
+            
+            userlol.setImage(bannerUrl);
+            
+            
+            if (responseMessage && typeof responseMessage.edit === "function") {
+              await responseMessage.edit(v2({ embeds: [userlol] })).catch(() => {});
+            }
+          }
+        } catch (err) {
+          
+        }
+      }, 50);
+
+      return responseMessage;
+    } catch (err) {
+      console.error("userinfo reply error:", err);
+    }
   },
 };
